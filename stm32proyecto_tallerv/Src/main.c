@@ -25,5 +25,10 @@
 int main(void)
 {
     /* Loop forever */
-	for(;;);
+	while(1){
+
+
+	}
+
+	return 0;
 }
