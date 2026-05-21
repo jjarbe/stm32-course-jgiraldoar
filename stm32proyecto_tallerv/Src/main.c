@@ -17,6 +17,8 @@
  */
 
 #include <stdint.h>
+#include <stm32f4xx.h>
+
 
 
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
@@ -99,6 +101,23 @@ int main(void)
 
 	overflow_demo = 735;
 	overflow_demo = 0;
+
+
+	//Encendiendo led LD2
+	//RCC->AHB1ENR |= (1<<0);
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+	//Pin A5 como salida
+	GPIOA->MODER |= (0b01 << GPIO_MODER_MODE5_Pos);
+	//Pin A5 como salida push pull
+	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5);
+	//Limpiando posicion de los bits que deseo borrar
+	GPIOA->OSPEEDR &= ~(Ob11 << GPIO_OSPEEDR_OSPEED5_POS);
+	//Seleccionando velocidad fast
+	GPIOA->OSPEEDR |= ~(Ob10 << GPIO_OSPEEDR_OSPEED5_POS);
+	//Escribir un 1 en la posicion 5
+	GPIOA->ODR |= (GPIO_ODR_OD5);
+
+
 
 	for(uint16_t counter = 0; counter < 735; counter ++){
 		overflow_demo++;
