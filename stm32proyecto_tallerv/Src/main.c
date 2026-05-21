@@ -72,6 +72,7 @@ int main(void)
 	d = 256;
 	e = 257;
 
+	//continuar en ejercicio 0.4
 
 	//Fin codigo homework
 
