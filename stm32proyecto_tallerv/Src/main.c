@@ -33,11 +33,13 @@ uint8_t hex = 0;
 uint8_t bin = 0;
 
 uint8_t a = 0;
-uint16_t b= 0;
-uint32_t c = 0;
-uint8_t d = 0;
-uint8_t e = 0;
-
+uint8_t b = 0;
+uint8_t c = 0;
+uint8_t r1 = 0;
+uint8_t r2 = 0;
+uint8_t r3 = 0;
+uint8_t r4 = 0;
+uint8_t r5 = 0;
 
 //Fin declaracion de variables homework
 
@@ -68,13 +70,16 @@ int main(void)
 	hex = 0x41;
 	bin = 0b01000001;
 
-	a = 255;
-	b = 255;
+	a = 5;
+	b = 0;
 	c = 255;
-	d = 256;
-	e = 257;
+	r1 = !a;
+	r2 = !b;
+	r3 = !c;
+	r4 = ~c;
+	r5 = ~a;
 
-	//continuar en ejercicio 0.4
+	//continuar en ejercicio 0.xx
 
 	//Fin codigo homework
 
@@ -111,9 +116,9 @@ int main(void)
 	//Pin A5 como salida push pull
 	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5);
 	//Limpiando posicion de los bits que deseo borrar
-	GPIOA->OSPEEDR &= ~(Ob11 << GPIO_OSPEEDR_OSPEED5_POS);
+	//GPIOA->OSPEEDR &= ~(Ob11 << GPIO_OSPEEDR_OSPEED5_POS);
 	//Seleccionando velocidad fast
-	GPIOA->OSPEEDR |= ~(Ob10 << GPIO_OSPEEDR_OSPEED5_POS);
+	//GPIOA->OSPEEDR |= ~(Ob10 << GPIO_OSPEEDR_OSPEED5_POS);
 	//Escribir un 1 en la posicion 5
 	GPIOA->ODR |= (GPIO_ODR_OD5);
 
