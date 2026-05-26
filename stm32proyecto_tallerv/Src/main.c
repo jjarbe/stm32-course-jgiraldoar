@@ -20,26 +20,8 @@
 #include <stm32f4xx.h>
 
 
-
-#if !defined(__SOFT_FP__) && defined(__ARM_FP)
-  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
-#endif
-
 //Declaracion de variables homework
 uint8_t my_variable = 0;
-
-uint8_t dec = 0;
-uint8_t hex = 0;
-uint8_t bin = 0;
-
-uint8_t a = 0;
-uint8_t b = 0;
-uint8_t c = 0;
-uint8_t r1 = 0;
-uint8_t r2 = 0;
-uint8_t r3 = 0;
-uint8_t r4 = 0;
-uint8_t r5 = 0;
 
 //Fin declaracion de variables homework
 
@@ -50,89 +32,104 @@ uint8_t var_a = 0;
 uint16_t var_b = 0;
 uint32_t var_c = 0;
 
-uint8_t overflow_demo  = 0;
+//Definicion de funciones
+
+void init_hardware(void);
 
 
-uint16_t var_a_dec = 0;
-uint16_t var_b_bin = 0;
-uint16_t var_c_hex = 0;
+//MAIN
 
-
-
-
-int main(void)
-{
+int main(void){
+	init_hardware();
 
 	//Inicio codigo homework
-	my_variable = 42;
-
-	dec = 65;
-	hex = 0x41;
-	bin = 0b01000001;
-
-	a = 5;
-	b = 0;
-	c = 255;
-	r1 = !a;
-	r2 = !b;
-	r3 = !c;
-	r4 = ~c;
-	r5 = ~a;
-
-	//continuar en ejercicio 0.xx
 
 	//Fin codigo homework
-
-	var_a = 100;
-	var_b = 4968;
-	var_c = 12345678;
-
-	var_a_dec = 32;
-	var_b_bin = 0b100000;
-	var_c_hex = 0x20;
-
-	//cargando el valor xxx en la variable yyy
-	var_b_bin = var_b_bin << 3; //prediccion: 0b10000000 = 256
-	var_b_bin = var_b_bin >> 3; //prediccion: 0b100 = 4 :c
-
-	//exponiendo el caso de un overflow
-	var_a = 255;
-	var_b = 255;
-	var_c = 255;
-
-	//incremento el valor de la variable 8bit en 1 y lo cargo en la variable overflow_demo
-	overflow_demo = var_a + 1;
-	overflow_demo = overflow_demo + 1;
-
-	overflow_demo = 735;
-	overflow_demo = 0;
-
 
 	//Encendiendo led LD2
 	//RCC->AHB1ENR |= (1<<0);
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
+
 	//Pin A5 como salida
-	GPIOA->MODER |= (0b01 << GPIO_MODER_MODE5_Pos);
+
+	GPIOA->MODER &= ~(GPIO_MODER_MODE5);
+	GPIOA->MODER |= (GPIO_MODER_MODE5_0);
 	//Pin A5 como salida push pull
 	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5);
 	//Limpiando posicion de los bits que deseo borrar
-	//GPIOA->OSPEEDR &= ~(Ob11 << GPIO_OSPEEDR_OSPEED5_POS);
+	GPIOA->OSPEEDR &= ~(GPIO_OSPEEDR_OSPEED5);
 	//Seleccionando velocidad fast
-	//GPIOA->OSPEEDR |= ~(Ob10 << GPIO_OSPEEDR_OSPEED5_POS);
+	GPIOA->OSPEEDR |= ~(GPIO_OSPEEDR_OSPEED5_1);
+
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD5);
 	//Escribir un 1 en la posicion 5
 	GPIOA->ODR |= (GPIO_ODR_OD5);
 
 
 
-	for(uint16_t counter = 0; counter < 735; counter ++){
-		overflow_demo++;
-	}
+	GPIOC->MODER &= ~GPIO_MODER_MODE13;
+	GPIOC->PUPDR &= ~GPIO_PUPDR_PUPD13;
+
 
     /* Loop forever */
 	while(1){
 
+		if ((GPIOC->IDR & (0b1 << 13)) == 0){
+			GPIOA->ODR |= GPIO_ODR_OD5;
+			  }
+
+		else{
+			GPIOA->ODR &= ~GPIO_ODR_OD5;
+			  }
+
+//		GPIOA->ODR |= GPIO_ODR_OD5;
+
+//		for (volatile uint32_t i = 0; i<1000000; i++);
+
+//		GPIOA->ODR &= ~GPIO_ODR_OD5;
+
+//		for (volatile uint32_t i = 0; i<1000000; i++);
+
 
 	}
-
 	return 0;
+
 }
+
+//FUNCIONES
+
+void init_hardware(void){
+
+	RCC->AHB1ENR |= (0b1<<0); //Enciende la señal del reloj para GPIOA
+
+	RCC->AHB1ENR |= (0b1<<2); //Enciende la señal del reloj para GPIOC
+
+	/*
+	 * Para PA5
+	 */
+
+	GPIOA->MODER &= ~ (0b11 << 5*2); //Ponemos en 0 (por precaución) estos registros.
+	GPIOA->MODER |= (0b1 << 5*2); //Ponemos el MODER5 en [0,1
+
+
+	GPIOA->OTYPER &= ~ (0b1 << 5); //Output push/pull
+
+	GPIOA->OSPEEDR &= ~(0b11 << 5*2); // Limpia los bits 10 y 11
+	GPIOA->OSPEEDR |= (0b1 << 11); //Fast Speed
+
+	GPIOA->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
+
+	GPIOA->ODR |= (0b1 << 5); //Salida en Alto
+
+
+	/*
+	 * Para PC13
+	 */
+
+
+	GPIOC->MODER &= ~ (0b11 << 13*2); //Ponemos en 0 (por precaución) estos registros. (input)
+	GPIOC->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
+
+}
+
