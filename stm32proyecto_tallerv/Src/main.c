@@ -16,30 +16,27 @@
  ******************************************************************************
  */
 
-#include <stdint.h>
 #include <stm32f4xx.h>
+#include <stdint.h>
+#include <stdio.h>
 
 
-//Declaracion de variables homework
-uint8_t my_variable = 0;
+//Definicion de variables
+volatile uint8_t led_ok = 0;
+volatile uint8_t cambio = 0;
+uint8_t color = 0;
 
-//Fin declaracion de variables homework
-
-
-
-//Definicion de variables del sistema
-uint8_t var_a = 0;
-uint16_t var_b = 0;
-uint32_t var_c = 0;
 
 //Definicion de funciones
 
 void init_hardware(void);
+void init_GPIO(void);
 
 
 //MAIN
 
 int main(void){
+	init_GPIO();
 	init_hardware();
 
 	//Inicio codigo homework
@@ -72,27 +69,62 @@ int main(void){
 	GPIOC->PUPDR &= ~GPIO_PUPDR_PUPD13;
 
 
-    /* Loop forever */
+	/* Loop forever */
 	while(1){
 
-		if ((GPIOC->IDR & (0b1 << 13)) == 0){
-			GPIOA->ODR |= GPIO_ODR_OD5;
-			  }
+		if(led_ok){
+			led_ok = 0;
+			GPIOA->ODR ^= GPIO_ODR_OD5; //Conexion LED por GPIOA
+		}
 
-		else{
-			GPIOA->ODR &= ~GPIO_ODR_OD5;
-			  }
+		if (cambio){
+			cambio = 0;
+			switch(color){
+			case(0): //verde
+							GPIOA->ODR |= GPIO_ODR_OD8;
+			GPIOA->ODR &= ~(GPIO_ODR_OD7);
+			GPIOA->ODR &= ~(GPIO_ODR_OD6);
+			color++;
+			break;
 
-//		GPIOA->ODR |= GPIO_ODR_OD5;
+			case(1):
+				GPIOA->ODR &= ~(GPIO_ODR_OD8);
+			GPIOA->ODR |= (GPIO_ODR_OD7);
+			GPIOA->ODR &= ~(GPIO_ODR_OD6);
+			color++;
+			break;
 
-//		for (volatile uint32_t i = 0; i<1000000; i++);
+			case(2):
+				GPIOA->ODR &= ~(GPIO_ODR_OD8);
+			GPIOA->ODR &= ~(GPIO_ODR_OD7);
+			GPIOA->ODR |= GPIO_ODR_OD6;
+			color = 0;
+			break;
 
-//		GPIOA->ODR &= ~GPIO_ODR_OD5;
 
-//		for (volatile uint32_t i = 0; i<1000000; i++);
+			}
+		}
 
 
+
+		//		if ((GPIOC->IDR & (0b1 << 13)) == 0){
+		//			GPIOA->ODR |= GPIO_ODR_OD5;
 	}
+
+	//		else{
+	//			GPIOA->ODR &= ~GPIO_ODR_OD5;
+	//			  }
+
+	//		GPIOA->ODR |= GPIO_ODR_OD5;
+
+	//		for (volatile uint32_t i = 0; i<1000000; i++);
+
+	//		GPIOA->ODR &= ~GPIO_ODR_OD5;
+
+	//		for (volatile uint32_t i = 0; i<1000000; i++);
+
+
+	//	}
 	return 0;
 
 }
@@ -133,3 +165,91 @@ void init_hardware(void){
 
 }
 
+void init_GPIO(void){
+	/*
+	 * Señal de reloj
+	 */
+	RCC->AHB1ENR &= ~RCC_AHB1ENR_GPIOAEN;
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+	/*
+	 * PA5 -> PA8
+	 */
+
+	GPIOA->MODER &= ~ (GPIO_MODER_MODE5 | GPIO_MODER_MODE6 | GPIO_MODER_MODE7 | GPIO_MODER_MODE8);
+	GPIOA->MODER |= (GPIO_MODER_MODE5_0 | GPIO_MODER_MODE6_0 | GPIO_MODER_MODE7_0 | GPIO_MODER_MODE8_0);
+
+	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5 | GPIO_OTYPER_OT6| GPIO_OTYPER_OT7 | GPIO_OTYPER_OT8);
+
+	GPIOA->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR5 | GPIO_OSPEEDER_OSPEEDR6 | GPIO_OSPEEDER_OSPEEDR7 | GPIO_OSPEEDER_OSPEEDR8);
+
+	GPIOA->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR5_1 | GPIO_OSPEEDER_OSPEEDR6_1 | GPIO_OSPEEDER_OSPEEDR7_1 | GPIO_OSPEEDER_OSPEEDR8_1);
+
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD5 | GPIO_PUPDR_PUPD6 | GPIO_PUPDR_PUPD7 | GPIO_PUPDR_PUPD8);
+
+	GPIOA->ODR |= (GPIO_ODR_OD5 | GPIO_ODR_OD6 | GPIO_ODR_OD7 | GPIO_ODR_OD8);
+
+	/*
+	 * TIM2
+	 */
+
+	RCC->APB1ENR &= ~(RCC_APB1ENR_TIM2EN);
+	RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+
+	TIM2->PSC = 16000-1; //El prescaler se pone a 1600 debido a que al dividirse es 16000000 y nos da 0.001s
+	TIM2->ARR = 1000-1; //1s
+
+	TIM2->CNT = 0; //COntador en 0 (inicio)
+
+	TIM2->DIER &= ~(TIM_DIER_UIE);
+	TIM2->DIER |= TIM_DIER_UIE;
+
+	__NVIC_EnableIRQ(TIM2_IRQn);
+
+	TIM2->CR1 &= ~(TIM_CR1_DIR);
+
+	TIM2->CR1 &= ~(TIM_CR1_ARPE);
+	TIM2->CR1 |= TIM_CR1_ARPE;
+
+	TIM2->CR1 |= TIM_CR1_CEN;
+
+	/*
+	 * TIM3
+	 */
+
+	RCC->APB1ENR &= ~(RCC_APB1ENR_TIM3EN);
+	RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+
+	TIM3->PSC = 16000-1; //El prescaler se pone a 1600 debido a que al dividirse es 16000000 y nos da 0.001s
+	TIM3->ARR = 4000-1; //4s
+
+	TIM3->CNT = 0; //COntador en 0 (inicio)
+
+	TIM3->DIER &= ~(TIM_DIER_UIE);
+	TIM3->DIER |= TIM_DIER_UIE;
+
+	__NVIC_EnableIRQ(TIM3_IRQn);
+
+	TIM3->CR1 &= ~(TIM_CR1_DIR);
+
+	TIM3->CR1 &= ~(TIM_CR1_ARPE);
+	TIM3->CR1 |= TIM_CR1_ARPE;
+
+	TIM3->CR1 |= TIM_CR1_CEN;
+
+}
+
+void TIM2_IRQHandler(void){
+	if (TIM2->SR & TIM_SR_UIF){
+		TIM2->SR &= ~ TIM_SR_UIF;
+		led_ok = 1;
+	}
+
+}
+
+void TIM3_IRQHandler(void){
+	if (TIM3->SR & TIM_SR_UIF){
+		TIM3->SR &= ~ TIM_SR_UIF;
+		cambio = 1;
+	}
+}
