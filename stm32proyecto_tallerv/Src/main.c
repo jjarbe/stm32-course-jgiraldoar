@@ -26,11 +26,17 @@ volatile uint8_t led_ok = 0;
 volatile uint8_t cambio = 0;
 uint8_t color = 0;
 
+volatile uint8_t aumentar_Counter = 0;
+uint16_t counter = 0;
+
+
+
 
 //Definicion de funciones
 
 void init_hardware(void);
 void init_GPIO(void);
+void init_exti(void);
 
 
 //MAIN
@@ -38,10 +44,6 @@ void init_GPIO(void);
 int main(void){
 	init_GPIO();
 	init_hardware();
-
-	//Inicio codigo homework
-
-	//Fin codigo homework
 
 	//Encendiendo led LD2
 	//RCC->AHB1ENR |= (1<<0);
@@ -72,6 +74,12 @@ int main(void){
 	/* Loop forever */
 	while(1){
 
+		//Bandera de counter
+		if(aumentar_Counter == 1){
+			counter = counter + 10;
+			aumentar_Counter = 0;
+		}
+
 		if(led_ok){
 			led_ok = 0;
 			GPIOA->ODR ^= GPIO_ODR_OD5; //Conexion LED por GPIOA
@@ -81,21 +89,21 @@ int main(void){
 			cambio = 0;
 			switch(color){
 			case(0): //verde
-							GPIOA->ODR |= GPIO_ODR_OD8;
+									GPIOA->ODR |= GPIO_ODR_OD8;
 			GPIOA->ODR &= ~(GPIO_ODR_OD7);
 			GPIOA->ODR &= ~(GPIO_ODR_OD6);
 			color++;
 			break;
 
 			case(1):
-				GPIOA->ODR &= ~(GPIO_ODR_OD8);
+						GPIOA->ODR &= ~(GPIO_ODR_OD8);
 			GPIOA->ODR |= (GPIO_ODR_OD7);
 			GPIOA->ODR &= ~(GPIO_ODR_OD6);
 			color++;
 			break;
 
 			case(2):
-				GPIOA->ODR &= ~(GPIO_ODR_OD8);
+						GPIOA->ODR &= ~(GPIO_ODR_OD8);
 			GPIOA->ODR &= ~(GPIO_ODR_OD7);
 			GPIOA->ODR |= GPIO_ODR_OD6;
 			color = 0;
@@ -152,7 +160,13 @@ void init_hardware(void){
 
 	GPIOA->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
 
-	GPIOA->ODR |= (0b1 << 5); //Salida en Alto
+	GPIOA->ODR |= (0b1 << 5); //Salida en AltoGPIOC->OTYPER &= ~ (0b1 << 5); //Output push/pull
+
+	GPIOC->OSPEEDR &= ~(0b11 << 5*2); // Limpia los bits 10 y 11
+	GPIOC->OSPEEDR |= (0b1 << 11); //Fast Speed
+
+	GPIOC->ODR |= (0b1 << 5); //Salida en Alto
+
 
 
 	/*
@@ -172,6 +186,7 @@ void init_GPIO(void){
 	RCC->AHB1ENR &= ~RCC_AHB1ENR_GPIOAEN;
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
 
+
 	/*
 	 * PA5 -> PA8
 	 */
@@ -189,6 +204,24 @@ void init_GPIO(void){
 
 	GPIOA->ODR |= (GPIO_ODR_OD5 | GPIO_ODR_OD6 | GPIO_ODR_OD7 | GPIO_ODR_OD8);
 
+	RCC->AHB1ENR |= (0b1<<0); //Enciende la señal del reloj para GPIOA
+
+	RCC->AHB1ENR |= (0b1<<2); //Enciende la señal del reloj para GPIOC
+
+	//GPIOC
+	GPIOC->MODER &= ~(GPIO_MODER_MODE1); //Ponemos en 0 (por precaución) estos registros.
+	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPD1); //No PUPDR
+
+
+	/*
+	 * Para PC13
+	 */
+
+
+	GPIOC->MODER &= ~ (0b11 << 13*2); //Ponemos en 0 (por precaución) estos registros. (input)
+	GPIOC->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
+
+
 	/*
 	 * TIM2
 	 */
@@ -199,7 +232,7 @@ void init_GPIO(void){
 	TIM2->PSC = 16000-1; //El prescaler se pone a 1600 debido a que al dividirse es 16000000 y nos da 0.001s
 	TIM2->ARR = 1000-1; //1s
 
-	TIM2->CNT = 0; //COntador en 0 (inicio)
+	TIM2->CNT = 0; //Contador en 0 (inicio)
 
 	TIM2->DIER &= ~(TIM_DIER_UIE);
 	TIM2->DIER |= TIM_DIER_UIE;
@@ -251,5 +284,38 @@ void TIM3_IRQHandler(void){
 	if (TIM3->SR & TIM_SR_UIF){
 		TIM3->SR &= ~ TIM_SR_UIF;
 		cambio = 1;
+	}
+}
+
+void init_exti(void){
+
+	//Encendiendo reloj SYSCFG EXTI
+	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+
+	//Configuramos el canal del exti
+	SYSCFG->EXTICR[0] &= ~(SYSCFG_EXTICR1_EXTI1);
+	//Config canal 1 del exti para el puerto C(pin c1)
+	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI1_PC;
+
+	//Seleccionando flanco
+	EXTI->RTSR |= EXTI_RTSR_TR1;
+
+	//Registrando en el NVIC la interrupcion para que la atienda
+	NVIC_EnableIRQ(EXTI1_IRQn);
+
+	//Bajamos la bandera
+	EXTI->PR |= EXTI_PR_PR1;
+
+	//Activamos la interrupcion
+	EXTI->IMR |= EXTI_IMR_IM1;
+
+}
+
+//ISR para el EXTI con flanco de subida
+void EXTI1_IRQHandler(void){
+	if(EXTI->PR && EXTI_PR_PR1){ //vERIFICAMOS LA INTERRUPCION
+		if(EXTI->PR |= EXTI_PR_PR1);
+		aumentar_Counter = 1;
+
 	}
 }
