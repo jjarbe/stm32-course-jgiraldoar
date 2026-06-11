@@ -30,8 +30,6 @@ volatile uint8_t aumentar_Counter = 0;
 uint16_t counter = 0;
 
 
-
-
 //Definicion de funciones
 
 void init_hardware(void);
