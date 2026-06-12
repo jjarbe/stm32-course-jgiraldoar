@@ -2,7 +2,7 @@
  ******************************************************************************
  * @file           : main.c
  * @author         : Juan Jose Giraldo Arbelaez
- * @brief          : Main program body
+ * @brief          : Main program body / stm32proyecto_tallerv
  ******************************************************************************
  * @attention
  *
@@ -16,60 +16,38 @@
  ******************************************************************************
  */
 
+
+// 1. Includes
 #include <stm32f4xx.h>
 #include <stdint.h>
 #include <stdio.h>
 
 
-//Definicion de variables
+//2. Definicion de variables
 volatile uint8_t led_ok = 0;
 volatile uint8_t cambio = 0;
 uint8_t color = 0;
-
 volatile uint8_t aumentar_Counter = 0;
 uint16_t counter = 0;
 
 
-//Definicion de funciones
+//3. Definicion de funciones
 
-void init_hardware(void);
 void init_GPIO(void);
+void init_Timers(void);
 void init_exti(void);
 
-
-//MAIN
-
+// ================================================================
+// MAIN
+// ================================================================
 int main(void){
+
+	//4. Bloque de inicializacion
 	init_GPIO();
-	init_hardware();
+	init_Timers();
+	init_exti();
 
-	//Encendiendo led LD2
-	//RCC->AHB1ENR |= (1<<0);
-	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
-
-	//Pin A5 como salida
-
-	GPIOA->MODER &= ~(GPIO_MODER_MODE5);
-	GPIOA->MODER |= (GPIO_MODER_MODE5_0);
-	//Pin A5 como salida push pull
-	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5);
-	//Limpiando posicion de los bits que deseo borrar
-	GPIOA->OSPEEDR &= ~(GPIO_OSPEEDR_OSPEED5);
-	//Seleccionando velocidad fast
-	GPIOA->OSPEEDR |= ~(GPIO_OSPEEDR_OSPEED5_1);
-
-	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD5);
-	//Escribir un 1 en la posicion 5
-	GPIOA->ODR |= (GPIO_ODR_OD5);
-
-
-
-	GPIOC->MODER &= ~GPIO_MODER_MODE13;
-	GPIOC->PUPDR &= ~GPIO_PUPDR_PUPD13;
-
-
-	/* Loop forever */
+	//5. Loop forever / infinite loop
 	while(1){
 
 		//Bandera de counter
@@ -111,114 +89,67 @@ int main(void){
 			}
 		}
 
-
-
-		//		if ((GPIOC->IDR & (0b1 << 13)) == 0){
-		//			GPIOA->ODR |= GPIO_ODR_OD5;
 	}
 
-	//		else{
-	//			GPIOA->ODR &= ~GPIO_ODR_OD5;
-	//			  }
-
-	//		GPIOA->ODR |= GPIO_ODR_OD5;
-
-	//		for (volatile uint32_t i = 0; i<1000000; i++);
-
-	//		GPIOA->ODR &= ~GPIO_ODR_OD5;
-
-	//		for (volatile uint32_t i = 0; i<1000000; i++);
-
-
-	//	}
 	return 0;
-
 }
 
-//FUNCIONES
-
-void init_hardware(void){
-
-	RCC->AHB1ENR |= (0b1<<0); //Enciende la señal del reloj para GPIOA
-
-	RCC->AHB1ENR |= (0b1<<2); //Enciende la señal del reloj para GPIOC
-
-	/*
-	 * Para PA5
-	 */
-
-	GPIOA->MODER &= ~ (0b11 << 5*2); //Ponemos en 0 (por precaución) estos registros.
-	GPIOA->MODER |= (0b1 << 5*2); //Ponemos el MODER5 en [0,1
-
-
-	GPIOA->OTYPER &= ~ (0b1 << 5); //Output push/pull
-
-	GPIOA->OSPEEDR &= ~(0b11 << 5*2); // Limpia los bits 10 y 11
-	GPIOA->OSPEEDR |= (0b1 << 11); //Fast Speed
-
-	GPIOA->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
-
-	GPIOA->ODR |= (0b1 << 5); //Salida en AltoGPIOC->OTYPER &= ~ (0b1 << 5); //Output push/pull
-
-	GPIOC->OSPEEDR &= ~(0b11 << 5*2); // Limpia los bits 10 y 11
-	GPIOC->OSPEEDR |= (0b1 << 11); //Fast Speed
-
-	GPIOC->ODR |= (0b1 << 5); //Salida en Alto
-
-
-
-	/*
-	 * Para PC13
-	 */
-
-
-	GPIOC->MODER &= ~ (0b11 << 13*2); //Ponemos en 0 (por precaución) estos registros. (input)
-	GPIOC->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
-
-}
+// ================================================================
+// FUNCIONES
+// ================================================================
 
 void init_GPIO(void){
-	/*
-	 * Señal de reloj
-	 */
-	RCC->AHB1ENR &= ~RCC_AHB1ENR_GPIOAEN;
-	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
+
+	// Señales de reloj
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN; //Enciende la señal del reloj para GPIOA
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOCEN;
+	//RCC->AHB1ENR |= RCC_AHB1ENR_GPIODEN;
+	//RCC->AHB1ENR |= RCC_AHB1ENR_GPIOHEN;
 
 
-	/*
-	 * PA5 -> PA8
-	 */
+	// Configurando GPIOA(MODER, OTYPER, OSPEEDR, PUPDR, ODR)
+	GPIOA->MODER &= ~(GPIO_MODER_MODE5);
+	GPIOA->MODER |= (GPIO_MODER_MODE5_0);
 
-	GPIOA->MODER &= ~ (GPIO_MODER_MODE5 | GPIO_MODER_MODE6 | GPIO_MODER_MODE7 | GPIO_MODER_MODE8);
-	GPIOA->MODER |= (GPIO_MODER_MODE5_0 | GPIO_MODER_MODE6_0 | GPIO_MODER_MODE7_0 | GPIO_MODER_MODE8_0);
+	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5);
 
-	GPIOA->OTYPER &= ~(GPIO_OTYPER_OT5 | GPIO_OTYPER_OT6| GPIO_OTYPER_OT7 | GPIO_OTYPER_OT8);
+	GPIOA->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR5);
+	GPIOA->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR5_1);
 
-	GPIOA->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR5 | GPIO_OSPEEDER_OSPEEDR6 | GPIO_OSPEEDER_OSPEEDR7 | GPIO_OSPEEDER_OSPEEDR8);
+	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD5);
 
-	GPIOA->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR5_1 | GPIO_OSPEEDER_OSPEEDR6_1 | GPIO_OSPEEDER_OSPEEDR7_1 | GPIO_OSPEEDER_OSPEEDR8_1);
+	GPIOA->ODR |= (GPIO_ODR_OD5);
 
-	GPIOA->PUPDR &= ~(GPIO_PUPDR_PUPD5 | GPIO_PUPDR_PUPD6 | GPIO_PUPDR_PUPD7 | GPIO_PUPDR_PUPD8);
+	// Configurando GPIOB(MODER, OTYPER, OSPEEDR, PUPDR, ODR)
+	GPIOB->MODER &= ~(GPIO_MODER_MODE5);
+	GPIOB->MODER |= (GPIO_MODER_MODE5_0);
 
-	GPIOA->ODR |= (GPIO_ODR_OD5 | GPIO_ODR_OD6 | GPIO_ODR_OD7 | GPIO_ODR_OD8);
+	GPIOB->OTYPER &= ~(GPIO_OTYPER_OT5);
 
-	RCC->AHB1ENR |= (0b1<<0); //Enciende la señal del reloj para GPIOA
+	GPIOB->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR5);
+	GPIOB->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR5_1);
 
-	RCC->AHB1ENR |= (0b1<<2); //Enciende la señal del reloj para GPIOC
+	GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPD5);
 
-	//GPIOC
-	GPIOC->MODER &= ~(GPIO_MODER_MODE1); //Ponemos en 0 (por precaución) estos registros.
-	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPD1); //No PUPDR
+	GPIOB->ODR |= (GPIO_ODR_OD5);
 
+	// Configurando GPIOC(MODER, OTYPER, OSPEEDR, PUPDR, ODR)
+	GPIOC->MODER &= ~(GPIO_MODER_MODE13);
+	GPIOC->MODER |= (GPIO_MODER_MODE13_0);
 
-	/*
-	 * Para PC13
-	 */
+	GPIOC->OTYPER &= ~(GPIO_OTYPER_OT13);
 
+	GPIOC->OSPEEDR &= ~(GPIO_OSPEEDER_OSPEEDR13);
+	GPIOC->OSPEEDR |= (GPIO_OSPEEDER_OSPEEDR13_1);
 
-	GPIOC->MODER &= ~ (0b11 << 13*2); //Ponemos en 0 (por precaución) estos registros. (input)
-	GPIOC->PUPDR &= ~ (0b11 << 5*2); //No PUPDR
+	GPIOC->PUPDR &= ~(GPIO_PUPDR_PUPD13);
 
+	GPIOC->ODR |= (GPIO_ODR_OD13);
+
+}
+
+void init_Timers(void){
 
 	/*
 	 * TIM2
@@ -270,6 +201,10 @@ void init_GPIO(void){
 
 }
 
+// ================================================================
+// INTERRUPT SERVICE ROUTINES (ISRs)
+// ================================================================
+
 void TIM2_IRQHandler(void){
 	if (TIM2->SR & TIM_SR_UIF){
 		TIM2->SR &= ~ TIM_SR_UIF;
@@ -311,8 +246,8 @@ void init_exti(void){
 
 //ISR para el EXTI con flanco de subida
 void EXTI1_IRQHandler(void){
-	if(EXTI->PR && EXTI_PR_PR1){ //vERIFICAMOS LA INTERRUPCION
-		if(EXTI->PR |= EXTI_PR_PR1);
+	if(EXTI->PR & EXTI_PR_PR1){ //vERIFICAMOS LA INTERRUPCION
+		EXTI->PR = EXTI_PR_PR1;
 		aumentar_Counter = 1;
 
 	}
