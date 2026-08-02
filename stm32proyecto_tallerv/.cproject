@@ -80,7 +80,7 @@
 					<sourceEntries>
 						<entry flags="VALUE_WORKSPACE_PATH" kind="sourcePath" name="Drivers"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Inc"/>
-						<entry excluding="stm32f4xx_it.c|main_diag_oled.c|main.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Src"/>
+						<entry excluding="main_encoder_voz.c|stm32f4xx_it_p1.c|main_grabadora.c|main_test_fullduplex.c|stm32f4xx_it_mic.c|main_test_mic.c|stm32f4xx_it_audio.c|main_test_audio.c|main_diag_oled.c" flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Src"/>
 						<entry flags="VALUE_WORKSPACE_PATH|RESOLVED" kind="sourcePath" name="Startup"/>
 					</sourceEntries>
 				</configuration>
