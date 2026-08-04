@@ -42,10 +42,10 @@
  *           TX = PA2 (AF7) por sondeo,
  *           RX = PA3 (AF7) por interrupción                      [CON IRQ]
  *
- * ─── Pines reservados para los servomotores (etapa siguiente) ───────────────
- *  PA6, PA7, PB0, PB1 → TIM3 canales 1..4
- *  PB6, PB7           → TIM4 canales 1..2
- *
+* ─── Servomotores (un punto Braille por servo) ──────────────────────────────
+ *  Punto 1 → PA6 (TIM3_CH1)     Punto 4 → PB1 (TIM3_CH4)
+ *  Punto 2 → PA7 (TIM3_CH2)     Punto 5 → PB7 (TIM4_CH2)
+ *  Punto 3 → PB6 (TIM4_CH1)     Punto 6 → PB0 (TIM3_CH3)
  * ─── Uso ────────────────────────────────────────────────────────────────────
  *  Escribir la palabra en el terminal y pulsar Enter: el recorrido arranca en
  *  la primera letra y se repite en bucle al terminar.
@@ -86,6 +86,41 @@
 /* ── Opciones de tiempo de espera entre letras, en segundos ── */
 #define OPCIONES               3u
 static const uint8_t tiempos[OPCIONES] = { 1u, 2u, 3u };
+
+/* ── Servomotores ──
+ * Cadena de reloj: SYSCLK 96 MHz → APB1 48 MHz → reloj de TIM3/TIM4 96 MHz.
+ * Los timers de APB1 reciben el doble del reloj del bus cuando su divisor no
+ * es 1, particularidad del F411 que aquí conviene tener presente.
+ *
+ * PSC = 95    → 96 MHz / 96 = 1 MHz  (1 microsegundo por cuenta)
+ * ARR = 19999 → periodo de 20 000 us = 20 ms = 50 Hz, lo que espera el servo
+ *
+ * Con esa base, el valor cargado en el registro de comparación ES
+ * directamente el ancho del pulso en microsegundos, que es la magnitud en la
+ * que se especifican los servos.
+ */
+#define SERVO_PSC          95u
+#define SERVO_ARR       19999u
+
+/* Anchos de pulso de las dos posiciones del punto Braille. El SG92R recorre
+ * sus 180 grados entre 500 y 2400 us; aquí solo hacen falta dos posiciones
+ * separadas lo justo para que el punto suba y baje. Ajustar según el
+ * mecanismo. */
+#define SERVO_PULSO_BAJO  1000u    /* punto retraído  */
+#define SERVO_PULSO_ALTO  1600u    /* punto levantado */
+
+/*
+ * El optoacoplador en configuración de colector abierto INVIERTE la señal:
+ * cuando el pin del micro está en alto, el fototransistor conduce y tira la
+ * línea del servo a nivel bajo. El modo PWM2 emite la señal invertida en el
+ * propio timer, y la doble inversión entrega al servo el pulso correcto.
+ * Si el servo no responde o tiembla sin control, probar con TIM_OCMODE_PWM1.
+ */
+#define SERVO_PWM_MODE    TIM_OCMODE_PWM2
+
+/* Cuántos servos están cableados. Subir de uno en uno a medida que se
+ * conecten; los no declarados ni se configuran ni se mueven. */
+#define SERVOS_CONECTADOS   6u
 
 /* ── Audio ──
  * Formato de 32 bits: cada trama ocupa cuatro medias palabras en memoria,
@@ -144,6 +179,8 @@ typedef enum
 
 TIM_HandleTypeDef  htim1;         /* encoder                    */
 TIM_HandleTypeDef  htim10;        /* blinky y base de tiempo    */
+TIM_HandleTypeDef  htim3;         /* PWM de los servos 1 a 4    */
+TIM_HandleTypeDef  htim4;         /* PWM de los servos 5 y 6    */
 I2S_HandleTypeDef  hi2s2;         /* audio full-duplex          */
 DMA_HandleTypeDef  hdma_i2s2_tx;  /* hacia el amplificador      */
 DMA_HandleTypeDef  hdma_i2s2_rx;  /* desde el micrófono         */
@@ -208,6 +245,8 @@ static void dma_Init(void);
 static void i2s2_Init(void);
 static void i2c1_Init(void);
 static void usart2_Init(void);
+static void servos_Init(void);
+static uint8_t mask_LetraActual(void);
 
 static void fsm_Run(void);
 static void trap_Error(void);
@@ -235,6 +274,7 @@ int main(void)
 
     tim10_Init();           print("  Base de tiempo OK\r\n");
     tim1_encoder_Init();    print("  Encoder OK\r\n");
+    servos_Init();          print(" Servos OK\r\n");
     dma_Init();             print("  DMA OK\r\n");
     i2s2_Init();            print("  Audio OK\r\n");
     i2c1_Init();            print("  I2C OK\r\n");
@@ -478,6 +518,121 @@ static void tim1_encoder_Init(void)
     HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);   /* sin _IT: sin IRQ   */
 }
 
+/* ═══════════════════════ TIM3 / TIM4: PWM de los servos ═══════════════════ */
+/*
+ * Los seis puntos del signo generador se reparten entre dos timers porque
+ * ninguno tiene seis canales. La distribución la impone el cableado físico
+ * del optoacoplador:
+ *
+ *   TIM3 → punto 1 (PA6, CH1), punto 2 (PA7, CH2),
+ *          punto 6 (PB0, CH3), punto 4 (PB1, CH4)
+ *   TIM4 → punto 3 (PB6, CH1), punto 5 (PB7, CH2)
+ *
+ * Los dos cuelgan de APB1 y llevan configuración idéntica, así que las seis
+ * señales son indistinguibles entre sí.
+ *
+ * Las dos bases de tiempo se inicializan siempre, aunque durante el montaje
+ * solo haya un servo conectado: un timer sin canales habilitados no toma
+ * ningún pin. Los canales sí se habilitan uno a uno según SERVOS_CONECTADOS,
+ * de modo que solo se mueve lo que está realmente cableado.
+ */
+static void servos_Init(void)
+{
+    GPIO_InitTypeDef   GPIO_InitStruct = {0};
+    TIM_OC_InitTypeDef sConfigOC       = {0};
+
+    __HAL_RCC_TIM3_CLK_ENABLE();
+    __HAL_RCC_TIM4_CLK_ENABLE();
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    /* ── Base de tiempo de TIM3: 1 us por cuenta, periodo de 20 ms ──      */
+    htim3.Instance               = TIM3;
+    htim3.Init.Prescaler         = SERVO_PSC;
+    htim3.Init.CounterMode       = TIM_COUNTERMODE_UP;
+    htim3.Init.Period            = SERVO_ARR;
+    htim3.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
+    htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    if (HAL_TIM_PWM_Init(&htim3) != HAL_OK) { trap_Error(); }
+
+    /* ── Base de tiempo de TIM4: configuración gemela ──                   */
+    htim4.Instance               = TIM4;
+    htim4.Init.Prescaler         = SERVO_PSC;
+    htim4.Init.CounterMode       = TIM_COUNTERMODE_UP;
+    htim4.Init.Period            = SERVO_ARR;
+    htim4.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
+    htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    if (HAL_TIM_PWM_Init(&htim4) != HAL_OK) { trap_Error(); }
+
+    /* Configuración común de los canales de comparación */
+    sConfigOC.OCMode     = SERVO_PWM_MODE;   /* invertido por el opto */
+    sConfigOC.Pulse      = SERVO_PULSO_BAJO; /* arrancar con el punto abajo */
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    GPIO_InitStruct.Mode  = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+
+    /* ── Servo 1 → punto 1 → PA6 (TIM3_CH1) ── */
+    GPIO_InitStruct.Pin       = GPIO_PIN_6;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1)
+        != HAL_OK) { trap_Error(); }
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+
+#if (SERVOS_CONECTADOS >= 2u)
+    /* ── Servo 2 → punto 2 → PA7 (TIM3_CH2) ── */
+    GPIO_InitStruct.Pin       = GPIO_PIN_7;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_2)
+        != HAL_OK) { trap_Error(); }
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+#endif
+
+#if (SERVOS_CONECTADOS >= 3u)
+    /* ── Servo 3 → punto 3 → PB6 (TIM4_CH1) ── */
+    GPIO_InitStruct.Pin       = GPIO_PIN_6;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM4;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1)
+        != HAL_OK) { trap_Error(); }
+    HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_1);
+#endif
+
+#if (SERVOS_CONECTADOS >= 4u)
+    /* ── Servo 4 → punto 4 → PB1 (TIM3_CH4) ── */
+    GPIO_InitStruct.Pin       = GPIO_PIN_1;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_4)
+        != HAL_OK) { trap_Error(); }
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+#endif
+
+#if (SERVOS_CONECTADOS >= 5u)
+    /* ── Servo 5 → punto 5 → PB7 (TIM4_CH2) ── */
+    GPIO_InitStruct.Pin       = GPIO_PIN_7;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM4;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_2)
+        != HAL_OK) { trap_Error(); }
+    HAL_TIM_PWM_Start(&htim4, TIM_CHANNEL_2);
+#endif
+
+#if (SERVOS_CONECTADOS >= 6u)
+    /* ── Servo 6 → punto 6 → PB0 (TIM3_CH3) ── */
+    GPIO_InitStruct.Pin       = GPIO_PIN_0;
+    GPIO_InitStruct.Alternate = GPIO_AF2_TIM3;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_3)
+        != HAL_OK) { trap_Error(); }
+    HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+#endif
+}
+
 /* ═══════════════ DMA: un stream por dirección, ambos circulares ═══════════ */
 /*
  * A 16 kHz el periférico pide una muestra cada 62 microsegundos. Atender eso
@@ -501,6 +656,7 @@ static void tim1_encoder_Init(void)
  * rellenar la mitad que ya se envió mientras la otra sigue en uso, sin
  * competir nunca por la misma memoria.
  */
+
 static void dma_Init(void)
 {
     __HAL_RCC_DMA1_CLK_ENABLE();
@@ -768,6 +924,7 @@ static void text_Start(void)
     paused   = 0;
 
     rx_len = 0;                     /* listo para la siguiente palabra      */
+    servos_Aplicar(mask_LetraActual());   /* colocar ya la primera letra */
     flag_refresh = 1;
 }
 
@@ -815,9 +972,57 @@ static void anuncio_Programar(void)
  *
  * Pendiente de implementar en la etapa de los servos.
  */
+
+/*
+ * servos_Aplicar — coloca los servos según la máscara de la letra actual.
+ *
+ * Recibe la MISMA máscara de 6 bits que dibuja la celda en pantalla, de modo
+ * que motores y pantalla no pueden desincronizarse: hay una sola fuente de
+ * verdad. Cada bit corresponde a un punto del signo generador y decide si
+ * ese servo va a la posición levantada o retraída.
+ *
+ * Escribir el registro de comparación es una operación instantánea; el
+ * hardware aplica el nuevo ancho de pulso en el siguiente periodo gracias al
+ * preload del registro, así que nunca se emite un pulso a medias.
+ */
 static void servos_Aplicar(uint8_t mask)
 {
-    (void)mask;
+    /* Correspondencia punto → timer y canal. Recorrerla en un bucle evita
+     * repetir seis veces la misma comprobación.                           */
+	static const struct
+	{
+		TIM_HandleTypeDef *htim;
+		uint32_t           canal;
+		uint8_t            bit;
+	} tabla[6] =
+	{
+			{ &htim3, TIM_CHANNEL_1, BRAILLE_DOT_1 },   /* servo 1 — PA6 */
+			{ &htim3, TIM_CHANNEL_2, BRAILLE_DOT_2 },   /* servo 2 — PA7 */
+			{ &htim4, TIM_CHANNEL_1, BRAILLE_DOT_3 },   /* servo 3 — PB6 */
+			{ &htim3, TIM_CHANNEL_4, BRAILLE_DOT_4 },   /* servo 4 — PB1 */
+			{ &htim4, TIM_CHANNEL_2, BRAILLE_DOT_5 },   /* servo 5 — PB7 */
+			{ &htim3, TIM_CHANNEL_3, BRAILLE_DOT_6 },   /* servo 6 — PB0 */
+	};
+    for (uint8_t i = 0; i < SERVOS_CONECTADOS; i++)
+    {
+        uint32_t pulso = (mask & tabla[i].bit) ? SERVO_PULSO_ALTO
+                                               : SERVO_PULSO_BAJO;
+        __HAL_TIM_SET_COMPARE(tabla[i].htim, tabla[i].canal, pulso);
+    }
+}
+
+/*
+ * mask_LetraActual — máscara Braille de la letra que se está mostrando.
+ * Centraliza el caso especial de la 'ñ' (que se guarda con un código propio
+ * porque no es ASCII) y el de los caracteres sin traducción, que devuelven
+ * la celda vacía.
+ */
+static uint8_t mask_LetraActual(void)
+{
+    char    l = text_buf[text_idx];
+    uint8_t m = ((uint8_t)l == 0xF1u) ? braille_GetMaskEnie()
+                                      : braille_GetMask(l);
+    return (m == BRAILLE_INVALID) ? 0u : m;
 }
 
 /*
@@ -918,11 +1123,13 @@ static void ui_Draw(void)
 	if (running)
 	{
 		letra = text_buf[text_idx];
+		mask  = mask_LetraActual();    /* la misma regla, un solo sitio */
 
 		/* La 'ñ' se guarda con un código propio porque no es ASCII */
 		if ((uint8_t)letra == 0xF1u)
 		{
-			mask = braille_GetMaskEnie();
+			/* La 'ñ' se dibuja como "N" con virgulilla encima, porque la
+			 * fuente de 5x7 no la incluye.                               */
 			SSD1306_WriteCharScaled(UI_LETTER_X, UI_LETTER_Y, 'N',
 					UI_LETTER_SCALE);
 			SSD1306_DrawHLine((uint8_t)(UI_LETTER_X + 2),
@@ -931,7 +1138,6 @@ static void ui_Draw(void)
 		}
 		else
 		{
-			mask = braille_GetMask(letra);
 			SSD1306_WriteCharScaled(UI_LETTER_X, UI_LETTER_Y, letra,
 					UI_LETTER_SCALE);
 		}
@@ -946,7 +1152,7 @@ static void ui_Draw(void)
 	snprintf(linea, sizeof(linea), "T=%us", (unsigned)tiempos[opcion_idx]);
 	SSD1306_WriteString(UI_TIME_X, UI_TIME_Y, linea);
 
-	/* ── Aviso de pausa, en la esquina inferior ──                         */
+	/* ── Aviso de pausa, en la esqui na inferior ──                         */
 	if (paused)
 	{
 		SSD1306_WriteString(UI_STATE_X, UI_STATE_Y, "PAUSA");
@@ -1076,12 +1282,8 @@ static void fsm_Run(void)
 
             /* Mover los servos a la letra nueva con la misma máscara que
              * después dibuja la celda en pantalla.                         */
-            {
-                char    l = text_buf[text_idx];
-                uint8_t m = ((uint8_t)l == 0xF1u) ? braille_GetMaskEnie()
-                                                  : braille_GetMask(l);
-                servos_Aplicar((m == BRAILLE_INVALID) ? 0u : m);
-            }
+
+            servos_Aplicar(mask_LetraActual());
             flag_refresh = 1;
         }
         fsm_state = FSM_IDLE;
